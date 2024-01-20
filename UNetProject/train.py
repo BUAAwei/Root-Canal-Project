@@ -16,7 +16,8 @@ from tqdm import tqdm
 import wandb
 from evaluate import evaluate
 from unet import UNet
-from dataset import MyDataset
+# from dataset import MyDataset  # 原版图像处理
+from dataset_ver2 import MyDataset  # 增加了水平垂直翻转以及比例缩放
 from dice import dice_loss
 
 dir_img = './data/imgs/'
