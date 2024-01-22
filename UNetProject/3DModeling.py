@@ -61,6 +61,12 @@ window.AddRenderer(renderer)
 interactor = vtk.vtkRenderWindowInteractor()
 interactor.SetRenderWindow(window)
 
+# 保存STL文件
+stl_writer = vtk.vtkSTLWriter()
+stl_writer.SetFileName("output_model/output.stl")
+stl_writer.SetInputConnection(contour.GetOutputPort())
+stl_writer.Write()
+
 # 开始显示
 if __name__ == '__main__':
     window.Render()
