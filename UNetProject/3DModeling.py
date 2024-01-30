@@ -32,8 +32,8 @@ PNG_Reader.GetOutput().SetSpacing(spacing)
 # 高斯平滑
 gauss = vtk.vtkImageGaussianSmooth()
 gauss.SetInputConnection(PNG_Reader.GetOutputPort())
-gauss.SetStandardDeviations(1.0, 1.0, 1.0)
-gauss.SetRadiusFactors(1.0, 1.0, 1.0)
+gauss.SetStandardDeviations(2.0, 2.0, 2.0)
+gauss.SetRadiusFactors(2.0, 2.0, 2.0)
 gauss.Update()
 
 # 计算轮廓的方法
@@ -49,6 +49,7 @@ mapper.ScalarVisibilityOff()
 
 actor = vtk.vtkActor()
 actor.SetMapper(mapper)
+actor.GetProperty().SetColor(0.7, 0.8, 1.0)
 
 renderer = vtk.vtkRenderer()
 renderer.SetBackground([1.0, 1.0, 1.0])
