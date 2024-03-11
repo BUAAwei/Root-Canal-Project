@@ -16,7 +16,7 @@ export default {
   mounted() {
     this.initThreeJS();
     setTimeout(() => {
-      window.addEventListener('mousemove', this.onMouseMove);
+      window.addEventListener("mousemove", this.onMouseMove);
     }, 5000);
   },
   methods: {
@@ -52,10 +52,16 @@ export default {
 
       // STL 文件加载
       const loader = new STLLoader();
-      loader.load("/models/output.stl", (geometry) => {
+      loader.load("/models/output3.stl", (geometry) => {
         geometry.computeVertexNormals(); // 计算顶点法线以平滑化
 
-        const material = new THREE.MeshNormalMaterial();
+        // const material = new THREE.MeshNormalMaterial();
+        const material = new THREE.MeshBasicMaterial({
+          color: 0x00ff00,
+          transparent: true,
+          opacity: 0.5,
+        });
+
         const mesh = new THREE.Mesh(geometry, material);
         scene.add(mesh);
 
@@ -71,37 +77,55 @@ export default {
         //   camera.lookAt(center);
       });
 
-
-      loader.load("/models/output.stl", (geometry) => {
+      loader.load("/models/output3.stl", (geometry) => {
         geometry.computeBoundingBox(); // 计算模型的边界框
         const boundingBox = geometry.boundingBox;
-        const sliceCount = 300; // 切片数量
-
+        const sliceCount = 50; // 切片数量
 
         const points = [];
         // 计算每个切片的高度和质心
         for (let i = 0; i < sliceCount; i++) {
-          const z = boundingBox.min.z + i * (boundingBox.max.z - boundingBox.min.z) / (sliceCount - 1);
-          const z2 = boundingBox.min.z + (i+1) * (boundingBox.max.z - boundingBox.min.z) / (sliceCount - 1);
+          const z =
+            boundingBox.min.z +
+            (i * (boundingBox.max.z - boundingBox.min.z)) / (sliceCount - 1);
+          const z2 =
+            boundingBox.min.z +
+            ((i + 1) * (boundingBox.max.z - boundingBox.min.z)) /
+              (sliceCount - 1);
           const sliceGeometry = new THREE.BufferGeometry();
 
-            const sliceVertices = [];
-            const position = geometry.attributes.position;
+          const sliceVertices = [];
+          const position = geometry.attributes.position;
 
-            // 筛选顶点位置
-            for (let j = 0; j < position.count; j += 3) {
+          // 筛选顶点位置
+          for (let j = 0; j < position.count; j += 3) {
             const vertexZ = position.getZ(j);
-            if (vertexZ >= z && vertexZ < z2) {
-                const vertexX = position.getX(j);
-                const vertexY = position.getY(j);
-                sliceVertices.push(new THREE.Vector3(vertexX, vertexY, vertexZ));
+            // 检查顶点位置是否有效
+            if (
+              !isNaN(vertexZ) &&
+              isFinite(vertexZ) &&
+              vertexZ >= z &&
+              vertexZ < z2
+            ) {
+              const vertexX = position.getX(j);
+              const vertexY = position.getY(j);
+              // 检查顶点的 X 和 Y 坐标是否有效
+              if (
+                !isNaN(vertexX) &&
+                isFinite(vertexX) &&
+                !isNaN(vertexY) &&
+                isFinite(vertexY)
+              ) {
+                sliceVertices.push(
+                  new THREE.Vector3(vertexX, vertexY, vertexZ)
+                );
+              }
             }
-            }
+          }
 
-
-          if (sliceVertices.length > 0){
+          if (sliceVertices.length > 0) {
             const centerOfMass = new THREE.Vector3();
-            sliceVertices.forEach(vertex => centerOfMass.add(vertex));
+            sliceVertices.forEach((vertex) => centerOfMass.add(vertex));
             centerOfMass.divideScalar(sliceVertices.length);
 
             // 绘制质心
@@ -115,7 +139,6 @@ export default {
             // console.log(i + dot)
           }
           // 计算质心
-          
         }
         console.log(points);
         // 创建 CatmullRomCurve3 曲线
@@ -127,32 +150,32 @@ export default {
         // const smoothPoints = curve.getPoints(100); // 获取 100 个平滑点
         // const ggeometry = new THREE.BufferGeometry().setFromPoints( curve );
         // 从曲线对象中获取平滑点
-        const smoothPoints = curve.getPoints(10);
+        const smoothPoints = curve.v0;
 
-        
+        console.log(smoothPoints);
+
         // 创建 BufferGeometry 对象并设置点集
-        const ggeometry = new THREE.BufferGeometry().setFromPoints(smoothPoints);
+        const ggeometry = new THREE.BufferGeometry().setFromPoints(
+          smoothPoints
+        );
 
         // 使用 BufferGeometry 创建线条对象
         const lline = new THREE.Line(ggeometry, material);
 
         // 将线条添加到场景中
         scene.add(lline);
-
       });
 
       //create a blue LineBasicMaterial
-    const material = new THREE.LineBasicMaterial( { color: 0x00ff00  } );
-    const points = [];
-    points.push( new THREE.Vector3( - 100, 0, 0 ) );
-    points.push( new THREE.Vector3( 0, 100, 0 ) );
-    points.push( new THREE.Vector3( 100, 0, 0 ) );
-    
+      const material = new THREE.LineBasicMaterial({ color: 0x00ff00 });
+      // const points = [];
+      // points.push( new THREE.Vector3( - 100, 0, 0 ) );
+      // points.push( new THREE.Vector3( 0, 100, 0 ) );
+      // points.push( new THREE.Vector3( 100, 0, 0 ) );
 
-
-    const geometry = new THREE.BufferGeometry().setFromPoints( points );
-    const line = new THREE.Line( geometry, material );
-    scene.add( line );
+      // const geometry = new THREE.BufferGeometry().setFromPoints( points );
+      // const line = new THREE.Line( geometry, material );
+      // scene.add( line );
 
       // 创建切平面但暂时不加入到场景中
       const planeGeometry = new THREE.PlaneGeometry(20, 20);
@@ -162,7 +185,7 @@ export default {
       scene.add(cuttingPlane);
 
       const controls = new OrbitControls(camera, renderer.domElement);
-      controls.addEventListener('change', () => renderer.render(scene, camera));
+      controls.addEventListener("change", () => renderer.render(scene, camera));
 
       // 使用dat.gui添加控制器
       const gui = new dat.GUI();
@@ -183,8 +206,6 @@ export default {
         .name("Z");
       cameraFolder.open();
 
-
-      
       const animate = () => {
         requestAnimationFrame(animate);
         renderer.render(scene, camera);
@@ -199,22 +220,22 @@ export default {
 
       raycaster.setFromCamera(mouse, camera);
       const intersects = raycaster.intersectObjects(scene.children);
-    //   if (intersects.length > 0) {
-    //     // 使切平面与交点对齐
-    //     console.log("Collision");
-    //     const intersect = intersects[0];
-    //     cuttingPlane.position.copy(intersect.point);
+      //   if (intersects.length > 0) {
+      //     // 使切平面与交点对齐
+      //     console.log("Collision");
+      //     const intersect = intersects[0];
+      //     cuttingPlane.position.copy(intersect.point);
 
-    //     // 切平面与相交点的法线方向对齐
-    //     // cuttingPlane.lookAt(intersect.point.clone().add(intersect.face.normal));
+      //     // 切平面与相交点的法线方向对齐
+      //     // cuttingPlane.lookAt(intersect.point.clone().add(intersect.face.normal));
 
-    //     // cuttingPlane.visible = true;
-    //   } else {
-    //     console.log("Not Collision");
-    //     cuttingPlane.visible = false; // 当不与模型相交时不显示
-    //     // set the cuttingplan unvisable
-    //     // what do you mean
-    //   }
+      //     // cuttingPlane.visible = true;
+      //   } else {
+      //     console.log("Not Collision");
+      //     cuttingPlane.visible = false; // 当不与模型相交时不显示
+      //     // set the cuttingplan unvisable
+      //     // what do you mean
+      //   }
     },
   },
 };

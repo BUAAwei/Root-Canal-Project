@@ -1,8 +1,6 @@
 <template>
   <div><MModelVue></MModelVue>
-    <MModelVue></MModelVue>
-    <MModelVue></MModelVue>
-    <MModelVue></MModelVue></div>
+</div>
   
 </template>
 
