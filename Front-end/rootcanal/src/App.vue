@@ -23,6 +23,61 @@ let camera = new THREE.PerspectiveCamera(
 let centX = 0;
 let centY = 0;
 let centZ = 0;
+let tube;
+let tube1;
+let tube2;
+let tube3;
+let tube4;
+let mesh;
+let mesh1;
+let mesh2;
+let mesh3;
+let mesh4;
+let gui = new dat.GUI();
+function loadAndProcessSWC(swcData, scene) {
+  const lines = swcData.split("\n").filter(line => !line.startsWith('#') && line.trim() !== '');
+  const points = [];
+  const childrenCount = new Map();
+
+  // 解析数据并构建结构
+  lines.forEach(line => {
+    const parts = line.split(' ').map(Number);
+    const [id, type, x, y, z, radius, parent] = parts;
+    points[id] = { id, x, y, z, radius, parent, children: [] };
+    if (parent >= 0) {
+      childrenCount.set(parent, (childrenCount.get(parent) || 0) + 1);
+      if (points[parent]) {
+        points[parent].children.push(id);
+      }
+    }
+  });
+
+  const vertices = [];
+  const processPoint = (id, removeIfSingleChild = true) => {
+    const point = points[id];
+    if (!point) return;
+    const numOfChildren = childrenCount.get(id) || 0;
+
+    if (removeIfSingleChild && numOfChildren <= 2) return;
+
+    point.children.forEach(childId => {
+      const childPoint = points[childId];
+      vertices.push(point.x, point.y, point.z, childPoint.x, childPoint.y, childPoint.z);
+      processPoint(childId, false);
+    });
+  };
+
+  // 从无父节点的点开始处理
+  points.filter(point => point && point.parent === -1).forEach(point => processPoint(point.id));
+
+  // 创建和添加线段到场景
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+  const material = new THREE.LineBasicMaterial({ color: 0xff0000 });
+  const lineSegments = new THREE.LineSegments(geometry, material);
+  scene.add(lineSegments);
+}
+
 export default {
   mounted() {
     this.initThreeJS();
@@ -46,11 +101,98 @@ export default {
       const ambientLight = new THREE.AmbientLight(0x404040);
       scene.add(ambientLight);
 
-      const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+      const directionalLight = new THREE.DirectionalLight(0xffffff, 100);
       directionalLight.position.set(1, 1, 1);
       scene.add(directionalLight);
 
       const loader = new STLLoader();
+      const textloader = new THREE.TextureLoader();
+      scene.background = new THREE.Color(0x8fbcd4); // 例如：0x8FBCD4 为天空蓝
+      // Vertex Shader
+      const vertexShader = `
+  varying vec2 vUv;
+  void main() {
+    vUv = uv;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`;
+
+      // Fragment Shader
+      const fragmentShader = `
+      uniform sampler2D map;
+varying vec2 vUv;
+
+void main() {
+  vec4 texColor = texture2D(map, vUv);
+  float grayscale = (texColor.r + texColor.g + texColor.b) / 3.0;
+
+  // 计算uv坐标与中心的距离
+  // float distance = distance(vUv, vec2(0.5, 0.5));
+
+  // 设定中间显示区域的半径大小
+  // float radius = 0.5; // 可以调整这个值以改变中心显示区域的大小
+  // bool cent = false;
+
+  // 如果是中间部分，保持不变；否则，使其透明
+  if(!(vUv.x > 0.2 && vUv.x < 0.8 && vUv.y > 0.05 && vUv.y < 0.95)){
+    return;
+  }
+  if (grayscale < 0.1) {
+    gl_FragColor = vec4(texColor.rgb, 0.05); // 黑色或接近黑色的像素变得半透明
+  } else {
+    gl_FragColor = vec4(texColor.rgb, 1); // 其他像素根据距离调整透明度
+  }
+}
+
+`;
+      for (let i = 1; i < 200; i += 10) {
+        var texturePath = "/img/" + i + ".png";
+        console.log(texturePath);
+        textloader.load(texturePath, function (texture) {
+          const geometry = new THREE.PlaneGeometry(200, 200);
+
+          const material = new THREE.MeshBasicMaterial({
+            map: texture,
+            side: THREE.DoubleSide,
+          });
+          const plane = new THREE.Mesh(geometry, material);
+
+          // 根据需要调整位置，避免图片重叠
+          plane.position.set(-700, i * 2, 0);
+
+          // 使平面竖直摆放，围绕X轴旋转90度
+          plane.rotation.x = Math.PI / 2;
+
+          scene.add(plane);
+        });
+      }
+
+      for (let i = 1; i < 200; i += 3) {
+        texturePath = "/mask/" + i + ".png";
+        console.log(texturePath);
+        textloader.load(texturePath, function (texture) {
+          const geometry = new THREE.PlaneGeometry(600, 600);
+
+          const material = new THREE.ShaderMaterial({
+            uniforms: {
+              map: { value: texture },
+            },
+            vertexShader: vertexShader,
+            fragmentShader: fragmentShader,
+            transparent: true, // 开启材质的透明度支持
+            side: THREE.DoubleSide, // 设置材质的双面渲染
+          });
+          const plane = new THREE.Mesh(geometry, material);
+
+          // 根据需要调整位置，避免图片重叠
+          plane.position.set(-300, i * 2, 0);
+
+          // 使平面竖直摆放，围绕X轴旋转90度
+          plane.rotation.x = Math.PI / 2;
+
+          scene.add(plane);
+        });
+      }
 
       var centerDistance = new THREE.Vector3();
       loader.load("/models/output1.stl", (geometry) => {
@@ -75,7 +217,7 @@ export default {
         // make the geometry to the centerDistance of the scene
         // get the geometry's offset to the centerDistance of the scene
         // centerDistanceDistance = geometry.boundingSphere.center.length();
-        geometry.center();
+        // geometry.center();
 
         // create a transparent but clear used in medical imaging material
         //   const material = new THREE.MeshStandardMaterial({
@@ -93,131 +235,46 @@ export default {
           metalness: 0.3,
           roughness: 1.2,
         });
-        const mesh = new THREE.Mesh(geometry, material);
-        scene.add(mesh);
+        mesh1 = new THREE.Mesh(geometry, material);
+        scene.add(mesh1);
 
         const fileloader = new THREE.FileLoader();
         const swcPath = "/models/my_skeleton.swc"; // 替换为您的SWC文件路径
         console.log(centerDistance + "!!!!!!!!!!!?");
-        fileloader.load(swcPath, (swcData) => {
-          const lines = swcData.split("\n");
+        fileloader.load(swcPath, function(swcData) {
+          const lines = swcData.split("\n").filter(line => !line.startsWith('#') && line.trim() !== '');
+          const points = []; // 用于存储顶点
+          const geometry = new THREE.BufferGeometry();
+          const material = new THREE.LineBasicMaterial({ color: 0xff0000 });
+          const vertices = [];
 
-          const points = [];
-          lines.forEach((line) => {
-            const data = line.trim().split(" ");
-            if (data.length === 7) {
-              var x = parseFloat(data[2]);
-              var y = parseFloat(data[3]);
-              var z = parseFloat(data[4]);
-              console.log(
-                "centX" + centX + "centY" + centY + "centZ" + centZ + "..."
-              );
+          lines.forEach(line => {
+            const parts = line.split(' ').map(Number);
+            const [id, type, x, y, z, radius, parent] = parts;
 
-              // make x y z - centerDistance
-              x -= centX;
-              y -= centY;
-              z -= centZ;
-              console.log(x + "...");
-              // const radius = parseFloat(data[5]);
-              const parent = parseInt(data[6]);
+            // 将顶点坐标存储为Vector3，便于之后查找和连接
+            points[id] = { x, y, z, parent };
+          });
 
-              // const geometry = new THREE.SphereGeometry(6, 32, 32);
-              // const material = new THREE.MeshBasicMaterial({ color: 0xff0000 });
-              // const sphere = new THREE.Mesh(geometry, material);
-              // sphere.position.set(x, y, z);
-              // scene.add(sphere);
-
-              points.push({
-                position: new THREE.Vector3(x, y, z),
-                parentIndex: parent,
-              });
+          // 创建顶点连接
+          points.forEach((point, id) => {
+            if (point.parent > 0) { // 忽略没有父节点的顶点（如根节点）
+              const parentPoint = points[point.parent];
+              if (parentPoint) {
+                vertices.push(point.x, point.y, point.z);
+                vertices.push(parentPoint.x, parentPoint.y, parentPoint.z);
+              }
             }
           });
-          console.log(points);
 
-          // 过滤掉包含NaN值的点
-          const filteredPoints = points.filter(
-            (point) =>
-              !isNaN(point.position.x) &&
-              !isNaN(point.position.y) &&
-              !isNaN(point.position.z)
-          );
-
-          // 根据z坐标对过滤后的点进行排序
-          filteredPoints.sort((a, b) => a.position.z - b.position.z);
-
-          const zVarianceThreshold = 5; // 设定z坐标变化的最小阈值，根据你的需求调整
-
-          const reducedPoints = filteredPoints.reduce(
-            (acc, point, index, array) => {
-              // 如果是最后一个点，直接添加
-              if (index === array.length - 1) {
-                acc.push(point);
-              } else {
-                // 比较当前点和下一个点的z坐标差
-                const nextPoint = array[index + 1];
-                const zDifference = Math.abs(
-                  point.position.z - nextPoint.position.z
-                );
-                const xDifference = Math.abs(
-                  point.position.x - nextPoint.position.x
-                );
-                const yDifference = Math.abs(
-                  point.position.y - nextPoint.position.y
-                );
-
-                // 如果z坐标差大于等于阈值，保留这个点
-                if (zDifference >= zVarianceThreshold) {
-                  acc.push(point);
-                }else{
-                  if (xDifference >= 20 || yDifference >= 20) {
-                    acc.push(point);
-                  }
-                }
-              }
-              return acc;
-            },
-            []
-          );
-
-          // 现在 reducedPoints 包含了去除了连续变化小的点后的数组
-          // 可以继续使用 reducedPoints 进行曲线绘制等后续操作
-
-          // 使用排序后的点创建THREE.CatmullRomCurve3实例
-          console.log(reducedPoints);
-          const curvePoints = reducedPoints.map(
-            (point) =>
-              new THREE.Vector3(
-                point.position.x,
-                point.position.y,
-                point.position.z
-              )
-          );
-          const curve = new THREE.CatmullRomCurve3(curvePoints);
-
-          // 使用曲线对象生成一组平滑的点（例如，生成50个点）
-          const smoothPoints = curve.getPoints(50);
-
-          // 使用这些点创建一条线来可视化曲线
-          // const lineGeometry = new THREE.BufferGeometry().setFromPoints(
-          //   smoothPoints
-          // );
-          // const lineMaterial = new THREE.LineBasicMaterial({ color: 0xff0000, linewidth: 20 }); // 尝试增加linewidth值
-
-          // const line = new THREE.Line(lineGeometry, lineMaterial);
-
-          // // 将线添加到场景中
-          // scene.add(line);
-          // 使用曲线对象和指定的半径创建TubeGeometry
-          const tubeGeometry = new THREE.TubeGeometry(curve, 20, 2, 8, false);
-
-          // 创建材料
-          const tubeMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
-
-          // 创建mesh并添加到场景
-          const tube = new THREE.Mesh(tubeGeometry, tubeMaterial);
-          scene.add(tube);
+          // 将顶点数据传递给BufferGeometry
+          geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+          
+          // 创建线段并添加到场景
+          tube1 = new THREE.LineSegments(geometry, material);
+          scene.add(tube1);
         });
+
         // 让场景不要太暗，加入环境光，并且加入一些网格元素方便观察
         const aambientLight = new THREE.AmbientLight(0x804040);
         scene.add(aambientLight);
@@ -239,7 +296,7 @@ export default {
           renderer.render(scene, camera)
         );
 
-        const gui = new dat.GUI();
+
         // make gui element in parent dat-gui-container
         // gui.domElement.id = "dat-gui-container";
         document
@@ -268,6 +325,16 @@ export default {
           .add(camera.rotation, "z", -Math.PI, Math.PI)
           .name("Z");
 
+
+
+
+
+
+        // 一定要记得打开每个folder
+        cameraFolder.open();
+        // meshFolder.open();
+
+
         // const cuttingPlaneFolder = gui.addFolder("Cutting Plane");
         // cuttingPlaneFolder.add(cuttingPlane.position, "x", -100, 100).name("X");
         // cuttingPlaneFolder.add(cuttingPlane.position, "y", -100, 100).name("Y");
@@ -291,9 +358,256 @@ export default {
         // renderer.render(scene, camera);
       });
 
+
+      //同样的load output2 output3  output4
+      loader.load("/models/output2.stl", (geometry) => {
+        geometry.computeVertexNormals();
+        geometry.computeBoundingBox();
+        // geometry.center();
+        const material = new THREE.MeshStandardMaterial({
+          opacity: 0.6,
+          transparent: true,
+          metalness: 0.3,
+          roughness: 1.2,
+        });
+        mesh2 = new THREE.Mesh(geometry, material);
+        scene.add(mesh2);
+        const fileloader = new THREE.FileLoader();
+        const swcPath = "/models/output2.swc"; // 替换为您的SWC文件路径
+        console.log(centerDistance + "!!!!!!!!!!!?");
+        fileloader.load(swcPath, function(swcData) {
+          const lines = swcData.split("\n").filter(line => !line.startsWith('#') && line.trim() !== '');
+          const points = []; // 用于存储顶点
+          const geometry = new THREE.BufferGeometry();
+          const material = new THREE.LineBasicMaterial({ color: 0xff0000 });
+          const vertices = [];
+
+          lines.forEach(line => {
+            const parts = line.split(' ').map(Number);
+            const [id, type, x, y, z, radius, parent] = parts;
+
+            // 将顶点坐标存储为Vector3，便于之后查找和连接
+            points[id] = { x, y, z, parent };
+          });
+
+          // 创建顶点连接
+          points.forEach((point, id) => {
+            if (point.parent > 0) { // 忽略没有父节点的顶点（如根节点）
+              const parentPoint = points[point.parent];
+              if (parentPoint) {
+                vertices.push(point.x, point.y, point.z);
+                vertices.push(parentPoint.x, parentPoint.y, parentPoint.z);
+              }
+            }
+          });
+
+          // 将顶点数据传递给BufferGeometry
+          geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+          
+          // 创建线段并添加到场景
+          tube2 = new THREE.LineSegments(geometry, material);
+          scene.add(tube2);
+        });
+        //set x
+        // mesh.position.z = 100;
+      });
+      
+      loader.load("/models/output3.stl", (geometry) => {
+        geometry.computeVertexNormals();
+        geometry.computeBoundingBox();
+        // geometry.center();
+        const material = new THREE.MeshStandardMaterial({
+          opacity: 0.6,
+          transparent: true,
+          metalness: 0.3,
+          roughness: 1.2,
+        });
+        mesh3 = new THREE.Mesh(geometry, material);
+        scene.add(mesh3);
+        const fileloader = new THREE.FileLoader();
+        const swcPath = "/models/output3.swc"; // 替换为您的SWC文件路径
+        fileloader.load(swcPath, function(swcData) {
+          const lines = swcData.split("\n").filter(line => !line.startsWith('#') && line.trim() !== '');
+          const points = []; // 用于存储顶点
+          const geometry = new THREE.BufferGeometry();
+          const material = new THREE.LineBasicMaterial({ color: 0xff0000 });
+          const vertices = [];
+
+          lines.forEach(line => {
+            const parts = line.split(' ').map(Number);
+            const [id, type, x, y, z, radius, parent] = parts;
+
+            // 将顶点坐标存储为Vector3，便于之后查找和连接
+            points[id] = { x, y, z, parent };
+          });
+
+          // 创建顶点连接
+          points.forEach((point, id) => {
+            if (point.parent > 0) { // 忽略没有父节点的顶点（如根节点）
+              const parentPoint = points[point.parent];
+              if (parentPoint) {
+                vertices.push(point.x, point.y, point.z);
+                vertices.push(parentPoint.x, parentPoint.y, parentPoint.z);
+              }
+            }
+          });
+
+          // 将顶点数据传递给BufferGeometry
+          geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+          
+          // 创建线段并添加到场景
+          tube3 = new THREE.LineSegments(geometry, material);
+          scene.add(tube3);
+        });
+        // mesh.position.z = 200;
+      });
+
+      loader.load("/models/output4.stl", (geometry) => {
+        geometry.computeVertexNormals();
+        geometry.computeBoundingBox();
+        // geometry.center();
+        const material = new THREE.MeshStandardMaterial({
+          opacity: 0.6,
+          transparent: true,
+          metalness: 0.3,
+          roughness: 1.2,
+        });
+        mesh4 = new THREE.Mesh(geometry, material);
+        scene.add(mesh4);
+        const fileloader = new THREE.FileLoader();
+        const swcPath = "/models/output4.swc"; // 替换为您的SWC文件路径
+        console.log(centerDistance + "!!!!!!!!!!!?");
+        // 假设你已经有了THREE.FileLoader的实例fileLoader和一个场景scene
+
+        fileloader.load(swcPath, function(swcData) {
+          const lines = swcData.split("\n").filter(line => !line.startsWith('#') && line.trim() !== '');
+          const points = []; // 用于存储顶点
+          const geometry = new THREE.BufferGeometry();
+          const material = new THREE.LineBasicMaterial({ color: 0xff0000 });
+          const vertices = [];
+
+          lines.forEach(line => {
+            const parts = line.split(' ').map(Number);
+            const [id, type, x, y, z, radius, parent] = parts;
+
+            // 将顶点坐标存储为Vector3，便于之后查找和连接
+            points[id] = { x, y, z, parent };
+          });
+
+          // 创建顶点连接
+          points.forEach((point, id) => {
+            if (point.parent > 0) { // 忽略没有父节点的顶点（如根节点）
+              const parentPoint = points[point.parent];
+              if (parentPoint) {
+                vertices.push(point.x, point.y, point.z);
+                vertices.push(parentPoint.x, parentPoint.y, parentPoint.z);
+              }
+            }
+          });
+
+          // 将顶点数据传递给BufferGeometry
+          geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+          
+          // 创建线段并添加到场景
+          tube4 = new THREE.LineSegments(geometry, material);
+          scene.add(tube4);
+        });
+
+
+                  // 假设你已经有了mesh和tube对象，以及一个dat.GUI实例gui
+
+          const objectControls = {
+            positionX: 0,
+            positionY: 0,
+            positionZ: 0,
+            rotationX: 0,
+            rotationY: 0,
+            rotationZ: 0
+          };
+
+          // 更新位置
+          function updatePosition() {
+            mesh1.position.set(objectControls.positionX, objectControls.positionY, objectControls.positionZ);
+            tube1.position.set(objectControls.positionX, objectControls.positionY, objectControls.positionZ);
+
+            mesh2.position.set(objectControls.positionX, objectControls.positionY, objectControls.positionZ);
+            tube2.position.set(objectControls.positionX, objectControls.positionY, objectControls.positionZ);
+
+            mesh3.position.set(objectControls.positionX, objectControls.positionY, objectControls.positionZ);
+            tube3.position.set(objectControls.positionX, objectControls.positionY, objectControls.positionZ);
+
+            mesh4.position.set(objectControls.positionX, objectControls.positionY, objectControls.positionZ);
+            tube4.position.set(objectControls.positionX, objectControls.positionY, objectControls.positionZ);
+          }
+
+          // 更新旋转
+          // 更新旋转，将角度转换为弧度
+function updateRotation() {
+  const radX = objectControls.rotationX * Math.PI / 180;
+  const radY = objectControls.rotationY * Math.PI / 180;
+  const radZ = objectControls.rotationZ * Math.PI / 180;
+
+  mesh1.rotation.set(radX, radY, radZ);
+  tube1.rotation.set(radX, radY, radZ);
+
+  mesh2.rotation.set(radX, radY, radZ);
+  tube2.rotation.set(radX, radY, radZ);
+
+  mesh3.rotation.set(radX, radY, radZ);
+  tube3.rotation.set(radX, radY, radZ);
+
+  mesh4.rotation.set(radX, radY, radZ);
+  tube4.rotation.set(radX, radY, radZ);
+}
+
+          const guiFolder = gui.addFolder('Mesh & Tube Controls');
+
+          // 位置控制
+          guiFolder.add(objectControls, 'positionX', -1000, 1000).onChange(updatePosition);
+          guiFolder.add(objectControls, 'positionY', -1000, 1000).onChange(updatePosition);
+          guiFolder.add(objectControls, 'positionZ', -1000, 1000).onChange(updatePosition);
+
+          // 旋转控制
+          guiFolder.add(objectControls, 'rotationX', -360, 360).onChange(updateRotation);
+          guiFolder.add(objectControls, 'rotationY', -360, 360).onChange(updateRotation);
+          guiFolder.add(objectControls, 'rotationZ', -360, 360).onChange(updateRotation);
+
+          // 假设你已经有了mesh和tube对象，以及一个dat.GUI实例gui
+
+          // 扩展objectControls对象以包括scale属性
+          objectControls.scaleX = 1;
+          objectControls.scaleY = 1;
+          objectControls.scaleZ = 1;
+
+          // 更新缩放的函数
+          function updateScale() {
+            mesh1.scale.set(objectControls.scaleX, objectControls.scaleY, objectControls.scaleZ);
+            tube1.scale.set(objectControls.scaleX, objectControls.scaleY, objectControls.scaleZ);
+
+            mesh2.scale.set(objectControls.scaleX, objectControls.scaleY, objectControls.scaleZ);
+            tube2.scale.set(objectControls.scaleX, objectControls.scaleY, objectControls.scaleZ);
+
+            mesh3.scale.set(objectControls.scaleX, objectControls.scaleY, objectControls.scaleZ);
+            tube3.scale.set(objectControls.scaleX, objectControls.scaleY, objectControls.scaleZ);
+
+            mesh4.scale.set(objectControls.scaleX, objectControls.scaleY, objectControls.scaleZ);
+            tube4.scale.set(objectControls.scaleX, objectControls.scaleY, objectControls.scaleZ);
+          }
+
+          // 添加到GUI
+          guiFolder.add(objectControls, 'scaleX', 0, 5).name('Scale X').onChange(updateScale);
+          guiFolder.add(objectControls, 'scaleY', 0, 5).name('Scale Y').onChange(updateScale);
+          guiFolder.add(objectControls, 'scaleZ', 0, 5).name('Scale Z').onChange(updateScale);
+
+          guiFolder.open();
+
+
+        // mesh.position.z = 300;
+      });
       const animate = () => {
         requestAnimationFrame(animate);
         renderer.render(scene, camera);
+        // console.log(tube);
       };
 
       animate();
